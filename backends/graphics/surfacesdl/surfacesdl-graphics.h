@@ -132,6 +132,7 @@ protected:
 
 
 	SDL_Surface *_screen;
+	SDL_Surface *_targetScreen;
 #ifdef USE_RGB_COLOR
 	Graphics::PixelFormat _screenFormat;
 	Common::List<Graphics::PixelFormat> _supportedFormats;

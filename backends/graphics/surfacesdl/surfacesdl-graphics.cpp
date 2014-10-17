@@ -50,6 +50,7 @@ SurfaceSdlGraphicsManager::SurfaceSdlGraphicsManager(SdlEventSource *sdlEventSou
 	:
 	SdlGraphicsManager(sdlEventSource),
 	_screen(0),
+	_targetScreen(NULL),
 	_overlayVisible(false),
 	_overlayscreen(0),
 	_overlayWidth(0), _overlayHeight(0),
@@ -66,6 +67,11 @@ SurfaceSdlGraphicsManager::SurfaceSdlGraphicsManager(SdlEventSource *sdlEventSou
 
 SurfaceSdlGraphicsManager::~SurfaceSdlGraphicsManager() {
 	closeOverlay();
+
+	if (!_opengl && _screen) {
+		SDL_FreeSurface(_screen);
+		_screen = NULL;
+	}
 }
 
 void SurfaceSdlGraphicsManager::activateManager() {
@@ -161,7 +167,7 @@ void SurfaceSdlGraphicsManager::launcherInitSize(uint w, uint h) {
 }
 
 Graphics::PixelBuffer SurfaceSdlGraphicsManager::setupScreen(uint screenW, uint screenH, bool fullscreen, bool accel3d) {
-	uint32 sdlflags;
+	uint32 sdlflags = 0;
 	int bpp;
 
 	closeOverlay();
@@ -171,6 +177,8 @@ Graphics::PixelBuffer SurfaceSdlGraphicsManager::setupScreen(uint screenW, uint 
 	_antialiasing = 0;
 #endif
 	_fullscreen = fullscreen;
+	if (_fullscreen)
+		sdlflags |= SDL_FULLSCREEN;
 
 #ifdef USE_OPENGL
 	if (_opengl) {
@@ -186,19 +194,23 @@ Graphics::PixelBuffer SurfaceSdlGraphicsManager::setupScreen(uint screenW, uint 
 		SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 		setAntialiasing(true);
 
-		sdlflags = SDL_OPENGL;
+		sdlflags |= SDL_OPENGL;
 		bpp = 24;
+		_screen = SDL_SetVideoMode(screenW, screenH, bpp, sdlflags);
 	} else
 #endif
 	{
 		bpp = 16;
-		sdlflags = SDL_SWSURFACE;
+		sdlflags |= SDL_SWSURFACE;
+		const SDL_VideoInfo *vi = SDL_GetVideoInfo();
+		_targetScreen = SDL_SetVideoMode(vi->current_w, vi->current_h, bpp, sdlflags);
+		if (_screen)
+			SDL_FreeSurface(_screen);
+		_screen = SDL_CreateRGBSurface(SDL_SWSURFACE, screenW, screenH, 16,
+				_targetScreen->format->Rmask, _targetScreen->format->Gmask,
+				_targetScreen->format->Bmask, _targetScreen->format->Amask);
 	}
 
-	if (_fullscreen)
-		sdlflags |= SDL_FULLSCREEN;
-
-	_screen = SDL_SetVideoMode(screenW, screenH, bpp, sdlflags);
 #ifdef USE_OPENGL
 	// If 32-bit with antialiasing failed, try 32-bit without antialiasing
 	if (!_screen && _opengl && _antialiasing) {
@@ -524,6 +536,78 @@ void SurfaceSdlGraphicsManager::drawOverlay() {
 	SDL_UnlockSurface(_overlayscreen);
 }
 
+// Based on http://tech-algorithm.com/articles/bilinear-image-scaling/
+void BlitBilinearScaler(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+	int a, b, c, d, x, y, index;
+	float x_ratio = ((float)(srcW - 1)) / dstW;
+	float y_ratio = ((float)(srcH - 1)) / dstH;
+	float x_diff, y_diff, blue, red, green, x_step, y_step, x_onediff, y_onediff, xy_onediff, xy_diff, y_xonediff, x_diff_yonediff;
+	int offset = 0;
+
+	y_step = 0;
+	for (int i = 0; i < dstH; i++) {
+		x_step = 0;
+		y = (int)(y_step);
+		y_diff = y_step - y;
+		y_onediff = 1 - y_diff;
+		int indexBase = y * srcW;
+		for (int j = 0;j < dstW; j++) {
+			x = (int)(x_step);
+			x_diff = x_step - x;
+			x_onediff = 1 - x_diff;
+			xy_onediff = x_onediff * y_onediff;
+			xy_diff = x_diff * y_diff;
+			x_diff_yonediff = x_diff * y_onediff;
+			y_xonediff = y_diff * x_onediff;
+
+			index = indexBase + x;
+			a = (((srcPtr[index] & 0xf800) >> 8) << 16) |
+				(((srcPtr[index] & 0x07e0) >> 3) << 8) | ((srcPtr[index] & 0x001f) << 3);
+			b = (((srcPtr[index + 1] & 0xf800) >> 8) << 16) |
+				(((srcPtr[index + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + 1] & 0x001f) << 3);
+			c = (((srcPtr[index + srcW] & 0xf800) >> 8) << 16) |
+				(((srcPtr[index + srcW] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW] & 0x001f) << 3);
+			d = (((srcPtr[index + srcW + 1] & 0xf800) >> 8) << 16) |
+				(((srcPtr[index + srcW + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW + 1] & 0x001f) << 3);
+
+			// red element
+			// Yr = Ar(1-w)(1-h) + Br(w)(1-h) + Cr(h)(1-w) + Dr(wh)
+			red = ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
+				((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
+
+			// green element
+			// Yg = Ag(1-w)(1-h) + Bg(w)(1-h) + Cg(h)(1-w) + Dg(wh)
+			green = ((a >> 8) & 0xff) * xy_onediff + ((b >> 8) & 0xff) * x_diff_yonediff +
+				((c >> 8) & 0xff) * y_xonediff + ((d >> 8) & 0xff) * xy_diff;
+
+			// blue element
+			// Yb = Ab(1-w)(1-h) + Bb(w)(1-h) + Cb(h)(1-w) + Db(wh)
+			blue = (a & 0xff) * xy_onediff + (b & 0xff) * x_diff_yonediff +
+				(c & 0xff) * y_xonediff + (d & 0xff) * xy_diff;
+
+			dstPtr[offset++] = ((((int)red) >> 3) << 11) | ((((int)green) >> 2) << 5) | (((int)blue) >> 3);
+
+			x_step += x_ratio;
+		}
+		y_step += y_ratio;
+	}
+}
+
+// Based on http://tech-algorithm.com/articles/nearest-neighbor-image-scaling/
+void BlitNearestScaler(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+	int x_ratio = (int)((srcW << 16) / dstW) + 1;
+	int y_ratio = (int)((srcH << 16) / dstH) + 1;
+	int x2, y2;
+
+	for (int i = 0;i < dstH;i++) {
+		for (int j = 0;j < dstW;j++) {
+			x2 = ((j * x_ratio) >> 16);
+			y2 = ((i * y_ratio) >> 16);
+			dstPtr[(i * dstW) + j] = srcPtr[(y2 * srcW) + x2];
+		}
+	}
+}
+
 void SurfaceSdlGraphicsManager::updateScreen() {
 #ifdef USE_OPENGL
 	if (_opengl) {
@@ -545,7 +629,18 @@ void SurfaceSdlGraphicsManager::updateScreen() {
 		if (_overlayVisible) {
 			drawOverlay();
 		}
-		SDL_Flip(_screen);
+		SDL_LockSurface(_screen);
+		SDL_LockSurface(_targetScreen);
+#if 0
+		BlitBilinearScaler((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
+				(uint16 *)_screen->pixels, _screen->w, _screen->h);
+#else
+		BlitNearestScaler((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
+				(uint16 *)_screen->pixels, _screen->w, _screen->h);
+#endif
+		SDL_UnlockSurface(_targetScreen);
+		SDL_UnlockSurface(_screen);
+		SDL_Flip(_targetScreen);
 	}
 }
 
