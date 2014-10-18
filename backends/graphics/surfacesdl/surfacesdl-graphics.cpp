@@ -166,6 +166,9 @@ void SurfaceSdlGraphicsManager::launcherInitSize(uint w, uint h) {
 	setupScreen(w, h, false, false);
 }
 
+// Switch bilinear instead nearest filtering
+#define ENABLE_BILINEAR
+
 Graphics::PixelBuffer SurfaceSdlGraphicsManager::setupScreen(uint screenW, uint screenH, bool fullscreen, bool accel3d) {
 	uint32 sdlflags = 0;
 	int bpp;
@@ -200,15 +203,35 @@ Graphics::PixelBuffer SurfaceSdlGraphicsManager::setupScreen(uint screenW, uint 
 	} else
 #endif
 	{
+#if defined(ENABLE_BILINEAR)
+		bpp = 32;
+#else
 		bpp = 16;
+#endif
 		sdlflags |= SDL_SWSURFACE;
 		const SDL_VideoInfo *vi = SDL_GetVideoInfo();
 		_targetScreen = SDL_SetVideoMode(vi->current_w, vi->current_h, bpp, sdlflags);
+		SDL_PixelFormat *f = _targetScreen->format;
+		_targetScreenFormat = Graphics::PixelFormat(f->BytesPerPixel, 8 - f->Rloss, 8 - f->Gloss, 8 - f->Bloss, 0,
+										f->Rshift, f->Gshift, f->Bshift, f->Ashift);
+
 		if (_screen)
 			SDL_FreeSurface(_screen);
+
+		uint32 rmask, gmask, bmask, amask;
+#if SDL_BYTEORDER == SDL_BIG_ENDIAN
+		rmask = 0x00001f00;
+		gmask = 0x000007e0;
+		bmask = 0x000000f8;
+		amask = 0x00000000;
+#else
+		rmask = 0x0000f800;
+		gmask = 0x000007e0;
+		bmask = 0x0000001f;
+		amask = 0x00000000;
+#endif
 		_screen = SDL_CreateRGBSurface(SDL_SWSURFACE, screenW, screenH, 16,
-				_targetScreen->format->Rmask, _targetScreen->format->Gmask,
-				_targetScreen->format->Bmask, _targetScreen->format->Amask);
+						rmask, gmask, bmask, amask);
 	}
 
 #ifdef USE_OPENGL
@@ -540,7 +563,7 @@ void SurfaceSdlGraphicsManager::drawOverlay() {
 // http://fastcpp.blogspot.com/2011/06/bilinear-pixel-interpolation-using-sse.html
 // http://tech-algorithm.com/articles/bilinear-image-scaling/
 
-void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+void BlitBilinearScalerFloat(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFormat dstFmt, uint16 *srcPtr, int srcW, int srcH) {
 	int a, b, c, d, x, y, index;
 	int offset = 0;
 	float x_step, y_step;
@@ -578,11 +601,16 @@ void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr,
 			int w3 = fx1 * fy  * 256.0f;
 			int w4 = fx  * fy  * 256.0f;
 
+// 565
+//			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4) >> 8;
+//			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4) >> 8;
+//			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4) >> 8;
+//			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
+
 			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4) >> 8;
 			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4) >> 8;
 			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4) >> 8;
-
-			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
+			dstPtr[offset++] = dstFmt.RGBToColor(red, green, blue);
 
 			x_step += x_ratio;
 		}
@@ -594,7 +622,7 @@ void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr,
 // http://fastcpp.blogspot.com/2011/06/bilinear-pixel-interpolation-using-sse.html
 // http://tech-algorithm.com/articles/bilinear-image-scaling/
 
-void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+void BlitBilinearScalerInteger(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFormat dstFmt, uint16 *srcPtr, int srcW, int srcH) {
 	int a, b, c, d, x, y, index;
 	int offset = 0;
 	int x_step, y_step;
@@ -632,11 +660,16 @@ void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPt
 			int w3 = fx1 * fy;
 			int w4 = fx  * fy;
 
-			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4);
-			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4);
-			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4);
+// 565
+//			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4);
+//			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4);
+//			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4);
+//			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
 
-			dstPtr[offset++] = ((red >> 19) << 11) | ((green >> 18) << 5) | ((blue >> 16) >> 3);
+			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4) >> 16;
+			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4) >> 16;
+			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4) >> 16;
+			dstPtr[offset++] = dstFmt.RGBToColor(red, green, blue);
 
 			x_step += x_ratio;
 		}
@@ -645,7 +678,9 @@ void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPt
 }
 
 #include <xmmintrin.h>
+#if defined(__SSE4_1__)
 #include <smmintrin.h>
+#endif
 
 // Based on:
 // http://fastcpp.blogspot.com/2011/06/bilinear-pixel-interpolation-using-sse.html
@@ -659,7 +694,7 @@ inline __m128 CalcWeights(float x, float y) {
 	__m128 ssy = _mm_set_ss(y);
 	__m128 psXY = _mm_unpacklo_ps(ssx, ssy);      // 0 0 y x
 
-#if 0
+#if defined(__SSE4_1__)
 // compile with -msse4.1
 	__m128 psXYfloor = _mm_floor_ps(psXY); // use this line for if you have SSE4
 #else
@@ -677,7 +712,7 @@ inline __m128 CalcWeights(float x, float y) {
 	return _mm_mul_ps(w_x, w_y);
 }
 
-void BlitBilinearScalerSSE(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFormat dstFmt, uint16 *srcPtr, int srcW, int srcH) {
 	float x_step, y_step;
 	float x_ratio = ((float)(srcW - 1)) / dstW;
 	float y_ratio = ((float)(srcH - 1)) / dstH;
@@ -707,7 +742,7 @@ void BlitBilinearScalerSSE(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, i
 			__m128i p34 = _mm_loadl_epi64((const __m128i *)&p[2]);
 
 			__m128 weight = CalcWeights(x_step, y_step);
-#if 0
+#if defined(__SSE4_1__)
 // compile with -msse4.1
 
 			// convert RGBA RGBA RGBA RGAB to RRRR GGGG BBBB AAAA (AoS to SoA)
@@ -770,10 +805,20 @@ void BlitBilinearScalerSSE(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, i
 			int pixel = _mm_cvtsi128_si32(L8);
 #endif
 
+// 565
+//			int red   = (pixel >> 16) & 0xFF;
+//			int green = (pixel >> 8)  & 0xFF;
+//			int blue  = (pixel >> 0)  & 0xFF;
+//			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
+
+#if defined(MACOSX)
+			dstPtr[offset++] = SWAP_CONSTANT_32(pixel);
+#else
 			int red   = (pixel >> 16) & 0xFF;
 			int green = (pixel >> 8)  & 0xFF;
 			int blue  = (pixel >> 0)  & 0xFF;
-			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
+			dstPtr[offset++] = dstFmt.RGBToColor(red, green, blue);
+#endif
 
 			x_step += x_ratio;
 		}
@@ -819,12 +864,12 @@ void SurfaceSdlGraphicsManager::updateScreen() {
 		}
 		SDL_LockSurface(_screen);
 		SDL_LockSurface(_targetScreen);
-#if 1
-		BlitBilinearScalerInteger((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
-				(uint16 *)_screen->pixels, _screen->w, _screen->h);
-//		BlitBilinearScalerFloat((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
+#if defined(ENABLE_BILINEAR)
+//		BlitBilinearScalerFloat((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
 //				(uint16 *)_screen->pixels, _screen->w, _screen->h);
-//		BlitBilinearScalerSSE((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
+		BlitBilinearScalerInteger((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
+				(uint16 *)_screen->pixels, _screen->w, _screen->h);
+//		BlitBilinearScalerSSE((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
 //				(uint16 *)_screen->pixels, _screen->w, _screen->h);
 #else
 		BlitNearestScaler((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
