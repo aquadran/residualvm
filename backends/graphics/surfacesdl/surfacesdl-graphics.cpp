@@ -536,29 +536,24 @@ void SurfaceSdlGraphicsManager::drawOverlay() {
 	SDL_UnlockSurface(_overlayscreen);
 }
 
-// Based on http://tech-algorithm.com/articles/bilinear-image-scaling/
 void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
 	int a, b, c, d, x, y, index;
+	int offset = 0;
+	float x_step, y_step;
 	float x_ratio = ((float)(srcW - 1)) / dstW;
 	float y_ratio = ((float)(srcH - 1)) / dstH;
-	float x_diff, y_diff, blue, red, green, x_step, y_step, x_onediff, y_onediff, xy_onediff, xy_diff, y_xonediff, x_diff_yonediff;
-	int offset = 0;
 
 	y_step = 0;
 	for (int i = 0; i < dstH; i++) {
 		x_step = 0;
 		y = (int)(y_step);
-		y_diff = y_step - y;
-		y_onediff = 1 - y_diff;
+		float fy = y_step - y;
+		float fy1 = 1.0f - fy;
 		int indexBase = y * srcW;
 		for (int j = 0;j < dstW; j++) {
 			x = (int)(x_step);
-			x_diff = x_step - x;
-			x_onediff = 1 - x_diff;
-			xy_onediff = x_onediff * y_onediff;
-			xy_diff = x_diff * y_diff;
-			x_diff_yonediff = x_diff * y_onediff;
-			y_xonediff = y_diff * x_onediff;
+			float fx = x_step - x;
+			float fx1 = 1.0f - fx;
 
 			index = indexBase + x;
 			a = (srcPtr[index] & 0xF800) << 8 |
@@ -574,16 +569,67 @@ void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr,
 			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
 			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
 
-			red =   ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
-			        ((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
+			int w1 = fx1 * fy1 * 256.0f;
+			int w2 = fx  * fy1 * 256.0f;
+			int w3 = fx1 * fy  * 256.0f;
+			int w4 = fx  * fy  * 256.0f;
 
-			green = ((a >> 8) & 0xff)  * xy_onediff + ((b >> 8) & 0xff)  * x_diff_yonediff +
-			        ((c >> 8) & 0xff)  * y_xonediff + ((d >> 8) & 0xff)  * xy_diff;
+			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4) >> 8;
+			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4) >> 8;
+			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4) >> 8;
 
-			blue =  (a & 0xff)        * xy_onediff + (b & 0xff)         * x_diff_yonediff +
-			        (c & 0xff)        * y_xonediff + (d & 0xff)         * xy_diff;
+			dstPtr[offset++] = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3);
 
-			dstPtr[offset++] = (((int)red >> 3) << 11) | (((int)green >> 2) << 5) | ((int)blue >> 3);
+			x_step += x_ratio;
+		}
+		y_step += y_ratio;
+	}
+}
+
+
+void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+	int a, b, c, d, x, y, index;
+	int offset = 0;
+	int x_step, y_step;
+	int x_ratio = ((srcW - 1) * 256) / dstW;
+	int y_ratio = ((srcH - 1) * 256) / dstH;
+
+	y_step = 0;
+	for (int i = 0; i < dstH; i++) {
+		x_step = 0;
+		y = y_step / 256;
+		int fy = y_step - (y * 256);
+		int fy1 = 256 - fy;
+		int indexBase = y * srcW;
+		for (int j = 0;j < dstW; j++) {
+			x = x_step / 256;
+			int fx = x_step - (x * 256);
+			int fx1 = 256 - fx;
+
+			index = indexBase + x;
+			a = (srcPtr[index] & 0xF800) << 8 |
+			    (srcPtr[index] & 0x07E0) << 5 |
+			    (srcPtr[index] & 0x001F) << 3;
+			b = (srcPtr[index + 1] & 0xF800) << 8 |
+			    (srcPtr[index + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + 1] & 0x001F) << 3;
+			c = (srcPtr[index + srcW] & 0xF800) << 8 |
+			    (srcPtr[index + srcW] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW] & 0x001F) << 3;
+			d = (srcPtr[index + srcW + 1] & 0xF800) << 8 |
+			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
+
+			int w1 = fx1 * fy1;
+			int w2 = fx  * fy1;
+			int w3 = fx1 * fy;
+			int w4 = fx  * fy;
+
+			int red   = (((a >> 16) & 0xff) * w1 + ((b >> 16) & 0xff) * w2 + ((c >> 16) & 0xff) * w3 + ((d >> 16) & 0xff) * w4);
+			int green = (((a >> 8 ) & 0xff) * w1 + ((b >> 8 ) & 0xff) * w2 + ((c >> 8 ) & 0xff) * w3 + ((d >> 8 ) & 0xff) * w4);
+			int blue  = ( (a & 0xff)        * w1 +  (b & 0xff)        * w2 +  (c & 0xff)        * w3 +  (d & 0xff)        * w4);
+
+			dstPtr[offset++] = ((red >> 19) << 11) | ((green >> 18) << 5) | ((blue >> 16) >> 3);
 
 			x_step += x_ratio;
 		}
@@ -592,58 +638,7 @@ void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr,
 }
 
 // Based on http://tech-algorithm.com/articles/bilinear-image-scaling/
-void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
-	int a, b, c, d, x, y, index;
-	int x_ratio = ((srcW - 1) * 256) / dstW;
-	int y_ratio = ((srcH - 1) * 256) / dstH;
-	int x_diff, y_diff, blue, red, green, x_step, y_step, x_onediff, y_onediff, xy_onediff, xy_diff, y_xonediff, x_diff_yonediff;
-	int offset = 0;
-
-	y_step = 0;
-	for (int i = 0; i < dstH; i++) {
-		x_step = 0;
-		y = y_step / 256;
-		y_diff = y_step - (y * 256);
-		y_onediff = 256 - y_diff;
-		int indexBase = y * srcW;
-		for (int j = 0;j < dstW; j++) {
-			x = x_step / 256;
-			x_diff = x_step - (x * 256);
-			x_onediff = 256 - x_diff;
-			xy_onediff = x_onediff * y_onediff;
-			xy_diff = x_diff * y_diff;
-			x_diff_yonediff = x_diff * y_onediff;
-			y_xonediff = y_diff * x_onediff;
-
-			index = indexBase + x;
-			a = (srcPtr[index] & 0xF800) << 8 |
-			    (srcPtr[index] & 0x07E0) << 5 |
-			    (srcPtr[index] & 0x001F) << 3;
-			b = (srcPtr[index + 1] & 0xF800) << 8 |
-			    (srcPtr[index + 1] & 0x07E0) << 5 |
-			    (srcPtr[index + 1] & 0x001F) << 3;
-			c = (srcPtr[index + srcW] & 0xF800) << 8 |
-			    (srcPtr[index + srcW] & 0x07E0) << 5 |
-			    (srcPtr[index + srcW] & 0x001F) << 3;
-			d = (srcPtr[index + srcW + 1] & 0xF800) << 8 |
-			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
-			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
-
-			red =   ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
-			        ((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
-
-			green = ((a >> 8) & 0xff)  * xy_onediff + ((b >> 8) & 0xff)  * x_diff_yonediff +
-			        ((c >> 8) & 0xff)  * y_xonediff + ((d >> 8) & 0xff)  * xy_diff;
-
-			blue =   (a & 0xff)        * xy_onediff + (b & 0xff)         * x_diff_yonediff +
-			         (c & 0xff)        * y_xonediff + (d & 0xff)         * xy_diff;
-
-			dstPtr[offset++] = ((red >> 19) << 11) | ((green >> 18) << 5) | ((blue >> 16) >> 3);
-
-			x_step += x_ratio;
-		}
-		y_step += y_ratio;
-	}
+void BlitBilinearScalerSSE(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
 }
 
 // Based on http://tech-algorithm.com/articles/nearest-neighbor-image-scaling/
@@ -688,6 +683,8 @@ void SurfaceSdlGraphicsManager::updateScreen() {
 		BlitBilinearScalerInteger((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
 				(uint16 *)_screen->pixels, _screen->w, _screen->h);
 //		BlitBilinearScalerFloat((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
+//				(uint16 *)_screen->pixels, _screen->w, _screen->h);
+//		BlitBilinearScalerSSE((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
 //				(uint16 *)_screen->pixels, _screen->w, _screen->h);
 #else
 		BlitNearestScaler((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
