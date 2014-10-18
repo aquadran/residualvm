@@ -561,31 +561,29 @@ void BlitBilinearScalerFloat(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr,
 			y_xonediff = y_diff * x_onediff;
 
 			index = indexBase + x;
-			a = (((srcPtr[index] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index] & 0x07e0) >> 3) << 8) | ((srcPtr[index] & 0x001f) << 3);
-			b = (((srcPtr[index + 1] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + 1] & 0x001f) << 3);
-			c = (((srcPtr[index + srcW] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + srcW] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW] & 0x001f) << 3);
-			d = (((srcPtr[index + srcW + 1] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + srcW + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW + 1] & 0x001f) << 3);
+			a = (srcPtr[index] & 0xF800) << 8 |
+			    (srcPtr[index] & 0x07E0) << 5 |
+			    (srcPtr[index] & 0x001F) << 3;
+			b = (srcPtr[index + 1] & 0xF800) << 8 |
+			    (srcPtr[index + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + 1] & 0x001F) << 3;
+			c = (srcPtr[index + srcW] & 0xF800) << 8 |
+			    (srcPtr[index + srcW] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW] & 0x001F) << 3;
+			d = (srcPtr[index + srcW + 1] & 0xF800) << 8 |
+			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
 
-			// red element
-			// Yr = Ar(1-w)(1-h) + Br(w)(1-h) + Cr(h)(1-w) + Dr(wh)
-			red = ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
-				((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
+			red =   ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
+			        ((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
 
-			// green element
-			// Yg = Ag(1-w)(1-h) + Bg(w)(1-h) + Cg(h)(1-w) + Dg(wh)
-			green = ((a >> 8) & 0xff) * xy_onediff + ((b >> 8) & 0xff) * x_diff_yonediff +
-				((c >> 8) & 0xff) * y_xonediff + ((d >> 8) & 0xff) * xy_diff;
+			green = ((a >> 8) & 0xff)  * xy_onediff + ((b >> 8) & 0xff)  * x_diff_yonediff +
+			        ((c >> 8) & 0xff)  * y_xonediff + ((d >> 8) & 0xff)  * xy_diff;
 
-			// blue element
-			// Yb = Ab(1-w)(1-h) + Bb(w)(1-h) + Cb(h)(1-w) + Db(wh)
-			blue = (a & 0xff) * xy_onediff + (b & 0xff) * x_diff_yonediff +
-				(c & 0xff) * y_xonediff + (d & 0xff) * xy_diff;
+			blue =  (a & 0xff)        * xy_onediff + (b & 0xff)         * x_diff_yonediff +
+			        (c & 0xff)        * y_xonediff + (d & 0xff)         * xy_diff;
 
-			dstPtr[offset++] = ((((int)red) >> 3) << 11) | ((((int)green) >> 2) << 5) | (((int)blue) >> 3);
+			dstPtr[offset++] = (((int)red >> 3) << 11) | (((int)green >> 2) << 5) | ((int)blue >> 3);
 
 			x_step += x_ratio;
 		}
@@ -618,29 +616,27 @@ void BlitBilinearScalerInteger(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPt
 			y_xonediff = y_diff * x_onediff;
 
 			index = indexBase + x;
-			a = (((srcPtr[index] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index] & 0x07e0) >> 3) << 8) | ((srcPtr[index] & 0x001f) << 3);
-			b = (((srcPtr[index + 1] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + 1] & 0x001f) << 3);
-			c = (((srcPtr[index + srcW] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + srcW] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW] & 0x001f) << 3);
-			d = (((srcPtr[index + srcW + 1] & 0xf800) >> 8) << 16) |
-				(((srcPtr[index + srcW + 1] & 0x07e0) >> 3) << 8) | ((srcPtr[index + srcW + 1] & 0x001f) << 3);
+			a = (srcPtr[index] & 0xF800) << 8 |
+			    (srcPtr[index] & 0x07E0) << 5 |
+			    (srcPtr[index] & 0x001F) << 3;
+			b = (srcPtr[index + 1] & 0xF800) << 8 |
+			    (srcPtr[index + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + 1] & 0x001F) << 3;
+			c = (srcPtr[index + srcW] & 0xF800) << 8 |
+			    (srcPtr[index + srcW] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW] & 0x001F) << 3;
+			d = (srcPtr[index + srcW + 1] & 0xF800) << 8 |
+			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
+			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
 
-			// red element
-			// Yr = Ar(1-w)(1-h) + Br(w)(1-h) + Cr(h)(1-w) + Dr(wh)
-			red = ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
-				((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
+			red =   ((a >> 16) & 0xff) * xy_onediff + ((b >> 16) & 0xff) * x_diff_yonediff +
+			        ((c >> 16) & 0xff) * y_xonediff + ((d >> 16) & 0xff) * xy_diff;
 
-			// green element
-			// Yg = Ag(1-w)(1-h) + Bg(w)(1-h) + Cg(h)(1-w) + Dg(wh)
-			green = ((a >> 8) & 0xff) * xy_onediff + ((b >> 8) & 0xff) * x_diff_yonediff +
-				((c >> 8) & 0xff) * y_xonediff + ((d >> 8) & 0xff) * xy_diff;
+			green = ((a >> 8) & 0xff)  * xy_onediff + ((b >> 8) & 0xff)  * x_diff_yonediff +
+			        ((c >> 8) & 0xff)  * y_xonediff + ((d >> 8) & 0xff)  * xy_diff;
 
-			// blue element
-			// Yb = Ab(1-w)(1-h) + Bb(w)(1-h) + Cb(h)(1-w) + Db(wh)
-			blue = (a & 0xff) * xy_onediff + (b & 0xff) * x_diff_yonediff +
-				(c & 0xff) * y_xonediff + (d & 0xff) * xy_diff;
+			blue =   (a & 0xff)        * xy_onediff + (b & 0xff)         * x_diff_yonediff +
+			         (c & 0xff)        * y_xonediff + (d & 0xff)         * xy_diff;
 
 			dstPtr[offset++] = ((red >> 19) << 11) | ((green >> 18) << 5) | ((blue >> 16) >> 3);
 
