@@ -688,8 +688,8 @@ void BlitBilinearScalerInteger(uint32 *dstPtr, int dstW, int dstH, Graphics::Pix
 
 static const __m128 CONST_1111 = _mm_set1_ps(1);
 static const __m128 CONST_256 = _mm_set1_ps(256);
- 
-inline __m128 CalcWeights(float x, float y) {
+
+static FORCEINLINE __m128 CalcWeights(float x, float y) {
 	__m128 ssx = _mm_set_ss(x);
 	__m128 ssy = _mm_set_ss(y);
 	__m128 psXY = _mm_unpacklo_ps(ssx, ssy);      // 0 0 y x
@@ -712,11 +712,47 @@ inline __m128 CalcWeights(float x, float y) {
 	return _mm_mul_ps(w_x, w_y);
 }
 
-void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFormat dstFmt, uint16 *srcPtr, int srcW, int srcH) {
+// SSE2 565 to 8888 conversion code based on: pixman-sse2.c code
+static __m128i MaskRed;
+static __m128i MaskGreen;
+static __m128i MaskBlue;
+static __m128i Mask565FixRB;
+static __m128i Mask565FixG;
+
+static FORCEINLINE __m128i unpack565to8888(__m128i lo) {
+	__m128i r, g, b, rb, t;
+
+	r = _mm_and_si128(_mm_slli_epi32(lo, 8), MaskRed);
+	g = _mm_and_si128(_mm_slli_epi32(lo, 5), MaskGreen);
+	b = _mm_and_si128(_mm_slli_epi32(lo, 3), MaskBlue);
+
+	rb = _mm_or_si128(r, b);
+	t  = _mm_and_si128(rb, Mask565FixRB);
+	t  = _mm_srli_epi32(t, 5);
+	rb = _mm_or_si128(rb, t);
+
+	t  = _mm_and_si128(g, Mask565FixG);
+	t  = _mm_srli_epi32(t, 6);
+	g  = _mm_or_si128(g, t);
+
+	return _mm_or_si128(rb, g);
+}
+
+static FORCEINLINE __m128i createMask_2x32_128(uint32_t mask0, uint32_t mask1) {
+    return _mm_set_epi32(mask0, mask1, mask0, mask1);
+}
+
+static void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFormat dstFmt, uint16 *srcPtr, int srcW, int srcH) {
 	float x_step, y_step;
 	float x_ratio = ((float)(srcW - 1)) / dstW;
 	float y_ratio = ((float)(srcH - 1)) / dstH;
-	int p[4], index, offset = 0;
+	int index, offset = 0;
+
+	MaskRed   = createMask_2x32_128(0x00f80000, 0x00f80000);
+	MaskGreen = createMask_2x32_128(0x0000fc00, 0x0000fc00);
+	MaskBlue  = createMask_2x32_128(0x000000f8, 0x000000f8);
+	Mask565FixRB = createMask_2x32_128(0x00e000e0, 0x00e000e0);
+	Mask565FixG  = createMask_2x32_128(0x0000c000, 0x0000c000);
 
 	y_step = 0;
 	for (int i = 0; i < dstH; i++) {
@@ -724,22 +760,12 @@ void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFo
 		int indexBase = (int)y_step * srcW;
 		for (int j = 0;j < dstW; j++) {
 			index = indexBase + (int)x_step;
-			p[0] = (srcPtr[index] & 0xF800) << 8 |
-			    (srcPtr[index] & 0x07E0) << 5 |
-			    (srcPtr[index] & 0x001F) << 3;
-			p[1] = (srcPtr[index + 1] & 0xF800) << 8 |
-			    (srcPtr[index + 1] & 0x07E0) << 5 |
-			    (srcPtr[index + 1] & 0x001F) << 3;
-			p[2] = (srcPtr[index + srcW] & 0xF800) << 8 |
-			    (srcPtr[index + srcW] & 0x07E0) << 5 |
-			    (srcPtr[index + srcW] & 0x001F) << 3;
-			p[3] = (srcPtr[index + srcW + 1] & 0xF800) << 8 |
-			    (srcPtr[index + srcW + 1] & 0x07E0) << 5 |
-			    (srcPtr[index + srcW + 1] & 0x001f) << 3;
 
-			// Load the data (2 pixels in one load)
-			__m128i p12 = _mm_loadl_epi64((const __m128i *)&p[0]);
-			__m128i p34 = _mm_loadl_epi64((const __m128i *)&p[2]);
+			__m128i p12 = _mm_loadl_epi64((const __m128i *)&srcPtr[index]);
+			__m128i p34 = _mm_loadl_epi64((const __m128i *)&srcPtr[index + srcW]);
+
+			p12 = unpack565to8888(_mm_unpacklo_epi16(p12, _mm_setzero_si128()));
+			p34 = unpack565to8888(_mm_unpacklo_epi16(p34, _mm_setzero_si128()));
 
 			__m128 weight = CalcWeights(x_step, y_step);
 #if defined(__SSE4_1__)
@@ -753,7 +779,7 @@ void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFo
 			// extend to 16bit
 			__m128i pRG = _mm_unpacklo_epi8(p1234_8bit, _mm_setzero_si128());
 			__m128i pBA = _mm_unpackhi_epi8(p1234_8bit, _mm_setzero_si128());
- 
+
 			// convert weights to integer
 			weight = _mm_mul_ps(weight, CONST_256);
 			__m128i weighti = _mm_cvtps_epi32(weight); // w4 w3 w2 w1
@@ -827,7 +853,7 @@ void BlitBilinearScalerSSE(uint32 *dstPtr, int dstW, int dstH, Graphics::PixelFo
 }
 
 // Based on http://tech-algorithm.com/articles/nearest-neighbor-image-scaling/
-void BlitNearestScaler(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
+static void BlitNearestScaler(uint16 *dstPtr, int dstW, int dstH, uint16 *srcPtr, int srcW, int srcH) {
 	int x_ratio = (int)((srcW << 16) / dstW) + 1;
 	int y_ratio = (int)((srcH << 16) / dstH) + 1;
 	int x2, y2;
