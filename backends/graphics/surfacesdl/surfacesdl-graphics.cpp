@@ -893,10 +893,10 @@ void SurfaceSdlGraphicsManager::updateScreen() {
 #if defined(ENABLE_BILINEAR)
 //		BlitBilinearScalerFloat((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
 //				(uint16 *)_screen->pixels, _screen->w, _screen->h);
-		BlitBilinearScalerInteger((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
-				(uint16 *)_screen->pixels, _screen->w, _screen->h);
-//		BlitBilinearScalerSSE((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
+//		BlitBilinearScalerInteger((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
 //				(uint16 *)_screen->pixels, _screen->w, _screen->h);
+		BlitBilinearScalerSSE((uint32 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h, _targetScreenFormat,
+				(uint16 *)_screen->pixels, _screen->w, _screen->h);
 #else
 		BlitNearestScaler((uint16 *)_targetScreen->pixels, _targetScreen->w, _targetScreen->h,
 				(uint16 *)_screen->pixels, _screen->w, _screen->h);
