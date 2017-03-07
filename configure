@@ -4952,6 +4952,11 @@ if test `get_engine_build stark` = yes && test ! "$_opengl_shaders" = yes ; then
 	engine_disable stark
 fi
 
+# TODO: remove it
+if test `get_engine_build icb` = yes ; then
+	DEFINES="$DEFINES -D_PC=1"
+fi
+
 #
 # Figure out installation directories
 #
